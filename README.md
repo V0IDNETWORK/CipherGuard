@@ -58,23 +58,14 @@ Easily locate saved accounts and credentials.
 ---
 
 ## 📸 Screenshots
+<div align="center">
+
 ![Home](assets/screenshots/home.jpg)
 
 ![Vault](assets/screenshots/vault.jpg)
 
 ### Welcome
 ![Generator](assets/screenshots/welcome.jpg)
-
-<div align="center">
-
-Add screenshots here
-
-```text
-assets/screenshots/
-├── home.png
-├── vault.png
-└── generator.png
-```
 
 </div>
 
