@@ -15,7 +15,7 @@ plugins {
 }
 
 android {
-    namespace = "com.mahdi.cipherguard"
+    namespace = "com.ilia.cipherguard"
 
     compileSdk = 36
 
@@ -31,7 +31,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.mahdi.cipherguard"
+        applicationId = "com.ilia.cipherguard"
 
         minSdk = flutter.minSdkVersion
         targetSdk = 36
