@@ -1,0 +1,4 @@
+storePassword=A090@@[[]][[":"/./";l;';
+keyPassword=A090@@[[]][[":"/./";l;';
+keyAlias=upload
+storeFile=../app/upload-keystore.jks
