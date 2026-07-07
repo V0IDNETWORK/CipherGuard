@@ -3,7 +3,7 @@ import '../../core/config/constants.dart';
 import '../../core/services/app_state.dart';
 import '../../widgets/common_widgets.dart';
 import '../auth/widgets/master_password_setup_sheet.dart';
-import '../auth/widgets/biometric_setup_sheet.dart';
+import '../auth/widgets/fingerprint_setup_sheet.dart';
 
 class SecurityCenterPage extends StatefulWidget {
   final AppState appState;
@@ -162,26 +162,26 @@ class _SecurityCenterPageState extends State<SecurityCenterPage> {
           ),
           const SizedBox(height: 8),
           GestureDetector(
-            onTap: as.biometricAvailable
+            onTap: as.fingerprintAvailable
                 ? () => showModalBottomSheet(
                       context: context,
                       backgroundColor: Colors.transparent,
                       isScrollControlled: true,
                       builder: (_) =>
-                          BiometricSetupSheet(appState: as),
+                          FingerprintSetupSheet(appState: as),
                     )
                 : null,
             child: _secItem(
               Icons.fingerprint,
-              'Biometric Auth',
+              'Fingerprint Auth',
               as.useBiometrics
                   ? 'Active — tap to manage'
-                  : as.biometricAvailable
+                  : as.fingerprintAvailable
                       ? 'Available — tap to enable'
                       : 'Not supported on this device',
               as.useBiometrics,
               AppColors.gradientNeon,
-              trailing: as.biometricAvailable
+              trailing: as.fingerprintAvailable
                   ? const Icon(Icons.chevron_right_rounded,
                       color: kTextMuted, size: 20)
                   : null,

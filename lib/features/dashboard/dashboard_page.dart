@@ -273,9 +273,9 @@ class _DashboardPageState extends State<DashboardPage>
 
   String _authStatusLabel(AppState as) {
     if (as.hasMasterPassword && as.useBiometrics) {
-      return 'Password + Biometric';
+      return 'Password + Fingerprint';
     }
-    if (as.useBiometrics) return 'Biometric enabled';
+    if (as.useBiometrics) return 'Fingerprint enabled';
     if (as.hasMasterPassword) return 'Master password set';
     return 'Not configured';
   }

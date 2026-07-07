@@ -2,46 +2,53 @@ import 'dart:math';
 import 'package:flutter/material.dart';
 import '../core/config/constants.dart';
 
-class Particle {
-  double x;
-  double y;
-  double vx;
-  double vy;
-  double size;
-  double opacity;
-  double life;
-  double maxLife;
-
-  Particle({
-    required this.x,
-    required this.y,
-    required this.vx,
-    required this.vy,
-    required this.size,
-    required this.opacity,
-    required this.life,
-    required this.maxLife,
-  });
-}
-
-class ParticlePainter extends CustomPainter {
-  final List<Particle> particles;
-  final Color color;
-
-  ParticlePainter({required this.particles, this.color = kNeon});
+class GridPainter extends CustomPainter {
+  final double opacity;
+  const GridPainter(this.opacity);
 
   @override
   void paint(Canvas canvas, Size size) {
-    for (final p in particles) {
-      final paint = Paint()
-        ..color = color.withValues(alpha: p.opacity * (p.life / p.maxLife))
-        ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 2);
-      canvas.drawCircle(Offset(p.x * size.width, p.y * size.height), p.size, paint);
+    final paint = Paint()
+      ..color = kNeon.withValues(alpha: 0.025 * opacity)
+      ..strokeWidth = 0.5;
+    const step = 48.0;
+    for (double x = 0; x < size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (double y = 0; y < size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
     }
   }
 
   @override
-  bool shouldRepaint(ParticlePainter old) => true;
+  bool shouldRepaint(GridPainter old) => old.opacity != opacity;
+}
+
+class _Dot {
+  double x, y, vx, vy, opacity;
+  int life, maxLife;
+  _Dot(this.x, this.y, this.vx, this.vy, this.opacity, this.life)
+      : maxLife = life;
+}
+
+class _DotPainter extends CustomPainter {
+  final List<_Dot> dots;
+  final Color color;
+  const _DotPainter(this.dots, this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()..style = PaintingStyle.fill;
+    for (final d in dots) {
+      paint.color =
+          color.withValues(alpha: d.opacity * (d.life / d.maxLife) * 0.5);
+      canvas.drawCircle(
+          Offset(d.x * size.width, d.y * size.height), 1.2, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DotPainter old) => true;
 }
 
 class ParticleSystem extends StatefulWidget {
@@ -52,7 +59,7 @@ class ParticleSystem extends StatefulWidget {
   const ParticleSystem({
     super.key,
     required this.child,
-    this.count = 30,
+    this.count = 18,
     this.color = kNeon,
   });
 
@@ -63,47 +70,47 @@ class ParticleSystem extends StatefulWidget {
 class _ParticleSystemState extends State<ParticleSystem>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
-  final List<Particle> _particles = [];
+  final List<_Dot> _dots = [];
   final Random _rng = Random();
+  int _tick = 0;
 
   @override
   void initState() {
     super.initState();
-    _initParticles();
+    final cap = widget.count.clamp(0, 24);
+    for (int i = 0; i < cap; i++) {
+      _dots.add(_newDot());
+    }
     _ctrl = AnimationController(
-        vsync: this, duration: const Duration(seconds: 1))
+      vsync: this,
+      duration: const Duration(milliseconds: 66),
+    )
       ..addListener(_update)
       ..repeat();
   }
 
-  void _initParticles() {
-    for (int i = 0; i < widget.count; i++) {
-      _particles.add(_newParticle());
-    }
-  }
-
-  Particle _newParticle() {
-    final life = 60 + _rng.nextDouble() * 120;
-    return Particle(
-      x: _rng.nextDouble(),
-      y: _rng.nextDouble(),
-      vx: (_rng.nextDouble() - 0.5) * 0.0004,
-      vy: -0.0003 - _rng.nextDouble() * 0.0004,
-      size: 0.5 + _rng.nextDouble() * 1.5,
-      opacity: 0.1 + _rng.nextDouble() * 0.4,
-      life: life,
-      maxLife: life,
+  _Dot _newDot() {
+    final life = 80 + _rng.nextInt(100);
+    return _Dot(
+      _rng.nextDouble(),
+      _rng.nextDouble(),
+      (_rng.nextDouble() - 0.5) * 0.0003,
+      -0.0002 - _rng.nextDouble() * 0.0003,
+      0.1 + _rng.nextDouble() * 0.3,
+      life,
     );
   }
 
   void _update() {
-    for (int i = 0; i < _particles.length; i++) {
-      final p = _particles[i];
-      p.x += p.vx;
-      p.y += p.vy;
-      p.life--;
-      if (p.life <= 0 || p.y < -0.05 || p.x < -0.05 || p.x > 1.05) {
-        _particles[i] = _newParticle();
+    _tick++;
+    if (_tick % 2 != 0) return;
+    for (int i = 0; i < _dots.length; i++) {
+      final d = _dots[i];
+      d.x += d.vx;
+      d.y += d.vy;
+      d.life--;
+      if (d.life <= 0 || d.y < -0.05 || d.x < -0.05 || d.x > 1.05) {
+        _dots[i] = _newDot();
       }
     }
   }
@@ -116,37 +123,15 @@ class _ParticleSystemState extends State<ParticleSystem>
 
   @override
   Widget build(BuildContext context) {
-    return AnimatedBuilder(
-      animation: _ctrl,
-      builder: (_, child) => CustomPaint(
-        painter: ParticlePainter(particles: _particles, color: widget.color),
-        child: child,
+    return RepaintBoundary(
+      child: AnimatedBuilder(
+        animation: _ctrl,
+        builder: (_, child) => CustomPaint(
+          painter: _DotPainter(_dots, widget.color),
+          child: child,
+        ),
+        child: widget.child,
       ),
-      child: widget.child,
     );
   }
-}
-
-class GridPainter extends CustomPainter {
-  final double opacity;
-
-  GridPainter(this.opacity);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = kNeon.withValues(alpha: 0.03 * opacity)
-      ..strokeWidth = 0.5;
-
-    const step = 40.0;
-    for (double x = 0; x < size.width; x += step) {
-      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
-    }
-    for (double y = 0; y < size.height; y += step) {
-      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(GridPainter old) => old.opacity != opacity;
 }

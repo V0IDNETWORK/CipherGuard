@@ -1,25 +1,19 @@
 import 'package:flutter/material.dart';
 import '../core/config/constants.dart';
 
-class FloatingNavBar extends StatefulWidget {
+class FloatingNavBar extends StatelessWidget {
   final int activeIndex;
   final ValueChanged<int> onTap;
   final List<String> labels;
+  final double bottomPadding;
 
   const FloatingNavBar({
     super.key,
     required this.activeIndex,
     required this.onTap,
     required this.labels,
+    this.bottomPadding = 0,
   });
-
-  @override
-  State<FloatingNavBar> createState() => _FloatingNavBarState();
-}
-
-class _FloatingNavBarState extends State<FloatingNavBar>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _rippleCtrl;
 
   static const _icons = [
     Icons.dashboard_rounded,
@@ -29,102 +23,133 @@ class _FloatingNavBarState extends State<FloatingNavBar>
   ];
 
   @override
+  Widget build(BuildContext context) {
+    final extraPad = bottomPadding > 0 ? bottomPadding : 8.0;
+    return Container(
+      margin: EdgeInsets.fromLTRB(16, 0, 16, extraPad),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(22),
+        color: const Color(0xFF0F0F1A),
+        border: Border.all(color: kGlassBorder, width: 1),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x60000000),
+            blurRadius: 24,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+        child: Row(
+          children: List.generate(4, (i) => Expanded(child: _NavItem(
+            icon: _icons[i],
+            label: labels[i],
+            active: activeIndex == i,
+            onTap: () => onTap(i),
+          ))),
+        ),
+      ),
+    );
+  }
+}
+
+class _NavItem extends StatefulWidget {
+  final IconData icon;
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+
+  const _NavItem({
+    required this.icon,
+    required this.label,
+    required this.active,
+    required this.onTap,
+  });
+
+  @override
+  State<_NavItem> createState() => _NavItemState();
+}
+
+class _NavItemState extends State<_NavItem>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _ctrl;
+  late Animation<double> _scale;
+
+  @override
   void initState() {
     super.initState();
-    _rippleCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 300));
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 120));
+    _scale = Tween<double>(begin: 1.0, end: 0.92)
+        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeOut));
   }
 
   @override
   void dispose() {
-    _rippleCtrl.dispose();
+    _ctrl.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return Positioned(
-      bottom: 20,
-      left: 20,
-      right: 20,
-      child: Container(
-        height: 68,
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          color: kSurface2,
-          border: Border.all(color: kGlassBorder, width: 1),
-          boxShadow: [
-            BoxShadow(
-                color: Colors.black.withValues(alpha: 0.5),
-                blurRadius: 32,
-                offset: const Offset(0, 8)),
-            BoxShadow(
-                color: kNeon.withValues(alpha: 0.06),
-                blurRadius: 20),
-          ],
-        ),
-        child: Row(
-          children: List.generate(4, (i) => Expanded(child: _navItem(i))),
-        ),
-      ),
-    );
-  }
-
-  Widget _navItem(int index) {
-    final isActive = widget.activeIndex == index;
     return GestureDetector(
-      onTap: () {
-        _rippleCtrl.forward(from: 0);
-        widget.onTap(index);
+      onTapDown: (_) => _ctrl.forward(),
+      onTapUp: (_) {
+        _ctrl.reverse();
+        widget.onTap();
       },
+      onTapCancel: () => _ctrl.reverse(),
       behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 250),
-        curve: Curves.easeOutCubic,
-        margin: const EdgeInsets.all(6),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          gradient: isActive
-              ? const LinearGradient(
-                  colors: AppColors.gradientPrimary,
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                )
-              : null,
-          boxShadow: isActive
-              ? [
-                  BoxShadow(
-                      color: kPrimary.withValues(alpha: 0.45),
-                      blurRadius: 16,
-                      spreadRadius: 0),
-                ]
-              : [],
-        ),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            AnimatedSwitcher(
-              duration: const Duration(milliseconds: 200),
-              child: Icon(
-                _icons[index],
-                key: ValueKey('${index}_$isActive'),
-                color: isActive ? kText : kTextMuted,
-                size: isActive ? 22 : 20,
+      child: ScaleTransition(
+        scale: _scale,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          margin: const EdgeInsets.symmetric(horizontal: 3, vertical: 2),
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: widget.active
+                ? const LinearGradient(
+                    colors: AppColors.gradientPrimary,
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                  )
+                : null,
+            boxShadow: widget.active
+                ? [
+                    BoxShadow(
+                      color: kPrimary.withValues(alpha: 0.35),
+                      blurRadius: 12,
+                    )
+                  ]
+                : null,
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                widget.icon,
+                color: widget.active ? kText : kTextMuted,
+                size: widget.active ? 22 : 20,
               ),
-            ),
-            if (isActive) ...[
-              const SizedBox(height: 2),
-              Text(
-                widget.labels[index].toUpperCase(),
-                style: const TextStyle(
-                  color: kText,
-                  fontSize: 8,
-                  fontWeight: FontWeight.w800,
-                  letterSpacing: 0.8,
+              if (widget.active) ...[
+                const SizedBox(height: 3),
+                Text(
+                  widget.label.toUpperCase(),
+                  style: const TextStyle(
+                    color: kText,
+                    fontSize: 8,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.6,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );

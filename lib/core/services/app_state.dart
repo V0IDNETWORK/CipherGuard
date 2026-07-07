@@ -11,12 +11,13 @@ import '../config/constants.dart';
 import '../../data/models/vault_entry.dart';
 
 class AppState extends ChangeNotifier {
+  // ── State ──────────────────────────────────────────────────────────────────
   bool _initialized = false;
   bool _authenticated = false;
   bool _hasMasterPassword = false;
   bool _useBiometrics = false;
-  bool _biometricAvailable = false;
-  List<BiometricType> _availableBiometrics = [];
+  bool _fingerprintAvailable = false;
+  bool _fingerprintHardwarePresent = false;
   int _activeTab = 0;
   int _securityScore = 0;
   List<VaultEntry> _vault = [];
@@ -24,7 +25,6 @@ class AppState extends ChangeNotifier {
   String _searchQuery = '';
   VaultItemCategory? _filterCategory;
   Timer? _inactivityTimer;
-  final LocalAuthentication _localAuth = LocalAuthentication();
   int _failedAttempts = 0;
   DateTime? _lockoutUntil;
   String? _lastBiometricError;
@@ -33,12 +33,19 @@ class AppState extends ChangeNotifier {
   String _preferredLanguage = 'en';
   bool _profileComplete = false;
 
+  // Cached vault key – cleared on lock, populated after password auth.
+  // This avoids re-running PBKDF2 on every vault operation.
+  Uint8List? _cachedKey;
+
+  final LocalAuthentication _localAuth = LocalAuthentication();
+
+  // ── Getters ────────────────────────────────────────────────────────────────
   bool get initialized => _initialized;
   bool get authenticated => _authenticated;
   bool get hasMasterPassword => _hasMasterPassword;
   bool get useBiometrics => _useBiometrics;
-  bool get biometricAvailable => _biometricAvailable;
-  List<BiometricType> get availableBiometrics => _availableBiometrics;
+  bool get fingerprintAvailable => _fingerprintAvailable;
+  bool get fingerprintHardwarePresent => _fingerprintHardwarePresent;
   int get activeTab => _activeTab;
   int get securityScore => _securityScore;
   List<VaultEntry> get vault => _vault;
@@ -59,7 +66,9 @@ class AppState extends ChangeNotifier {
     return strings[key] ?? kLangStrings['en']![key] ?? key;
   }
 
-  Future<void> saveUserProfile(String name, String country, String lang) async {
+  // ── Profile ────────────────────────────────────────────────────────────────
+  Future<void> saveUserProfile(
+      String name, String country, String lang) async {
     _fullName = name;
     _country = country;
     _preferredLanguage = lang;
@@ -83,15 +92,15 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Vault filtering ────────────────────────────────────────────────────────
   List<VaultEntry> get filteredVault {
     var list = _vault.where((e) {
-      final matchesSearch = _searchQuery.isEmpty ||
-          e.title.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          e.username.toLowerCase().contains(_searchQuery.toLowerCase()) ||
-          (e.website?.toLowerCase().contains(_searchQuery.toLowerCase()) ??
-              false) ||
-          e.tags.any(
-              (t) => t.toLowerCase().contains(_searchQuery.toLowerCase()));
+      final q = _searchQuery.toLowerCase();
+      final matchesSearch = q.isEmpty ||
+          e.title.toLowerCase().contains(q) ||
+          e.username.toLowerCase().contains(q) ||
+          (e.website?.toLowerCase().contains(q) ?? false) ||
+          e.tags.any((t) => t.toLowerCase().contains(q));
       final matchesCategory =
           _filterCategory == null || e.category == _filterCategory;
       return matchesSearch && matchesCategory;
@@ -135,6 +144,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Initialisation ─────────────────────────────────────────────────────────
   Future<void> initialize() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -148,7 +158,17 @@ class AppState extends ChangeNotifier {
       _preferredLanguage = 'en';
     }
 
-    await _checkBiometricAvailability();
+    await _checkFingerprintAvailability();
+
+    // If user had biometrics enabled but hardware is now unavailable, keep
+    // the preference so password still works; just flip off the hw flag.
+    if (_useBiometrics && !_fingerprintAvailable) {
+      _useBiometrics = false;
+      try {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.setBool('use_biometrics', false);
+      } catch (_) {}
+    }
 
     try {
       await _loadVault();
@@ -167,32 +187,72 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _checkBiometricAvailability() async {
+  // ── Biometric availability (fingerprint-only, MIUI-safe) ──────────────────
+  Future<void> _checkFingerprintAvailability() async {
     try {
-      final canCheck = await _localAuth.canCheckBiometrics;
+      // isDeviceSupported: true when the device has biometric/pin hardware.
+      // This does NOT require a fingerprint to be enrolled.
       final isSupported = await _localAuth.isDeviceSupported();
-      _biometricAvailable = canCheck && isSupported;
-      if (_biometricAvailable) {
-        _availableBiometrics = await _localAuth.getAvailableBiometrics();
-        if (_availableBiometrics.isEmpty) {
-          _biometricAvailable = false;
-        }
+      _fingerprintHardwarePresent = isSupported;
+
+      if (!isSupported) {
+        _fingerprintAvailable = false;
+        return;
       }
+
+      // canCheckBiometrics: true when hardware exists AND at least one
+      // biometric is enrolled. On MIUI this sometimes returns false even
+      // when a fingerprint is enrolled, so we also check getAvailableBiometrics.
+      bool canCheck = false;
+      try {
+        canCheck = await _localAuth.canCheckBiometrics;
+      } on PlatformException {
+        // MIUI can throw here — fall through to getAvailableBiometrics below.
+      }
+
+      // getAvailableBiometrics: returns enrolled types.
+      // BiometricType.strong covers hardware fingerprint on Android 9+.
+      // BiometricType.fingerprint covers older APIs and some OEMs.
+      // We accept either. We never check for .face or .iris.
+      List<BiometricType> enrolled = [];
+      try {
+        enrolled = await _localAuth.getAvailableBiometrics();
+      } on PlatformException {
+        enrolled = [];
+      }
+
+      final hasFingerprint =
+          enrolled.contains(BiometricType.fingerprint) ||
+          enrolled.contains(BiometricType.strong);
+
+      // Device has hardware (so setup is possible) even if not yet enrolled.
+      _fingerprintHardwarePresent = isSupported;
+      // "Available" = can actually authenticate right now (enrolled).
+      _fingerprintAvailable = canCheck || hasFingerprint;
+    } on PlatformException {
+      _fingerprintHardwarePresent = false;
+      _fingerprintAvailable = false;
     } catch (_) {
-      _biometricAvailable = false;
-      _availableBiometrics = [];
+      _fingerprintHardwarePresent = false;
+      _fingerprintAvailable = false;
     }
   }
 
+  // ── Setup master password ──────────────────────────────────────────────────
   Future<void> setupMasterPassword(String password) async {
     final salt = CryptoEngine.generateSalt();
     final hash = CryptoEngine.hashPassword(password, salt);
     await CryptoEngine.storeSecure('master_salt', base64.encode(salt));
     await CryptoEngine.storeSecure('master_hash', hash);
 
-    if (_vault.isNotEmpty) {
-      await _reEncryptVaultWithPassword(password, salt);
+    // Derive and cache the vault key immediately.
+    final newKey = CryptoEngine.deriveKeyFromPassword(password, salt);
+
+    if (_vault.isNotEmpty && _cachedKey != null) {
+      await _reEncryptVault(_cachedKey!, newKey);
     }
+
+    _cachedKey = newKey;
 
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -202,38 +262,43 @@ class AppState extends ChangeNotifier {
     _hasMasterPassword = true;
     _authenticated = true;
     _failedAttempts = 0;
+    _lockoutUntil = null;
     _addAuditEvent('AUTH', 'Master password configured');
     _computeSecurityScore();
     _resetInactivityTimer();
     notifyListeners();
   }
 
-  Future<bool> setupBiometrics() async {
+  // ── Setup fingerprint ──────────────────────────────────────────────────────
+  Future<bool> setupFingerprint() async {
     _lastBiometricError = null;
-    await _checkBiometricAvailability();
+    await _checkFingerprintAvailability();
 
-    if (!_biometricAvailable) {
-      _lastBiometricError = _availableBiometrics.isEmpty
-          ? 'No fingerprint or face data enrolled. Add one in device settings first.'
-          : 'This device does not support biometric authentication.';
+    if (!_fingerprintHardwarePresent) {
+      _lastBiometricError =
+          'This device does not have fingerprint hardware.';
       notifyListeners();
       return false;
     }
 
     try {
       final success = await _localAuth.authenticate(
-        localizedReason: 'Register your biometrics to protect CipherGuard',
+        localizedReason:
+            'Scan your fingerprint to register it with CipherGuard',
         options: const AuthenticationOptions(
           stickyAuth: true,
           biometricOnly: true,
+          sensitiveTransaction: true,
         ),
       );
 
       if (success) {
+        // Generate a biometric-bound random key for vault access when no
+        // password session key is present.
         if (await CryptoEngine.readSecure('biometric_key') == null) {
-          final newKey = CryptoEngine.generateSalt(32);
+          final key = CryptoEngine.generateSalt(32);
           await CryptoEngine.storeSecure(
-              'biometric_key', base64.encode(newKey));
+              'biometric_key', base64.encode(key));
         }
 
         try {
@@ -244,34 +309,36 @@ class AppState extends ChangeNotifier {
         _useBiometrics = true;
         _authenticated = true;
         _failedAttempts = 0;
-        _addAuditEvent('AUTH', 'Biometric authentication configured');
+        _lockoutUntil = null;
+        _addAuditEvent('AUTH', 'Fingerprint authentication configured');
         _computeSecurityScore();
         _resetInactivityTimer();
         notifyListeners();
+        return true;
       } else {
-        _lastBiometricError = 'Biometric registration was cancelled.';
+        _lastBiometricError = 'Fingerprint registration was cancelled.';
         notifyListeners();
+        return false;
       }
-      return success;
     } on PlatformException catch (e) {
-      _lastBiometricError = _messageForBiometricError(e);
+      _lastBiometricError = _fingerprintErrorMessage(e);
       notifyListeners();
       return false;
     } catch (_) {
       _lastBiometricError =
-          'Could not start biometric registration. Please try again.';
+          'Could not start fingerprint registration. Please try again.';
       notifyListeners();
       return false;
     }
   }
 
-  Future<void> disableBiometrics() async {
+  Future<void> disableFingerprint() async {
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('use_biometrics', false);
     } catch (_) {}
     _useBiometrics = false;
-    _addAuditEvent('AUTH', 'Biometric authentication disabled');
+    _addAuditEvent('AUTH', 'Fingerprint authentication disabled');
     _computeSecurityScore();
     notifyListeners();
   }
@@ -279,6 +346,7 @@ class AppState extends ChangeNotifier {
   Future<void> removeMasterPassword() async {
     await CryptoEngine.deleteSecure('master_salt');
     await CryptoEngine.deleteSecure('master_hash');
+    _cachedKey = null;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setBool('has_master_password', false);
@@ -289,6 +357,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Authentication ─────────────────────────────────────────────────────────
   Future<bool> authenticateWithPassword(String password) async {
     if (isLockedOut) return false;
 
@@ -296,10 +365,13 @@ class AppState extends ChangeNotifier {
       final saltStr = await CryptoEngine.readSecure('master_salt');
       final hash = await CryptoEngine.readSecure('master_hash');
       if (saltStr == null || hash == null) return false;
+
       final salt = base64.decode(saltStr);
       final valid = CryptoEngine.verifyPassword(password, salt, hash);
 
       if (valid) {
+        // Derive and cache vault key on successful login.
+        _cachedKey = CryptoEngine.deriveKeyFromPassword(password, salt);
         _authenticated = true;
         _failedAttempts = 0;
         _lockoutUntil = null;
@@ -309,8 +381,10 @@ class AppState extends ChangeNotifier {
       } else {
         _failedAttempts++;
         if (_failedAttempts >= 5) {
-          _lockoutUntil = DateTime.now().add(const Duration(minutes: 5));
-          _addAuditEvent('SECURITY', 'Account locked due to failed attempts');
+          _lockoutUntil =
+              DateTime.now().add(const Duration(minutes: 5));
+          _addAuditEvent(
+              'SECURITY', 'Account locked after failed attempts');
         }
         notifyListeners();
       }
@@ -321,72 +395,90 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<bool> authenticateWithBiometrics() async {
+  Future<bool> authenticateWithFingerprint() async {
     _lastBiometricError = null;
+
+    // Re-check hardware state each time — covers "enrolled after app start".
+    await _checkFingerprintAvailability();
+
+    if (!_fingerprintAvailable) {
+      _lastBiometricError =
+          'No fingerprint enrolled on this device. Use your master password instead.';
+      notifyListeners();
+      return false;
+    }
+
     try {
-      final canCheck = await _localAuth.canCheckBiometrics;
-      final isSupported = await _localAuth.isDeviceSupported();
-      if (!canCheck || !isSupported) {
-        _lastBiometricError =
-            'This device does not support biometric authentication.';
-        notifyListeners();
-        return false;
-      }
-      final available = await _localAuth.getAvailableBiometrics();
-      if (available.isEmpty) {
-        _lastBiometricError =
-            'No fingerprint or face data enrolled. Add one in device settings first.';
-        notifyListeners();
-        return false;
-      }
-      final authenticated = await _localAuth.authenticate(
-        localizedReason: 'Authenticate to access CipherGuard vault',
+      final ok = await _localAuth.authenticate(
+        localizedReason: 'Unlock your CipherGuard vault',
         options: const AuthenticationOptions(
           stickyAuth: true,
           biometricOnly: true,
+          sensitiveTransaction: true,
         ),
       );
-      if (authenticated) {
+
+      if (ok) {
+        // Load the biometric-bound key for vault ops when no PBKDF2 key is
+        // cached (i.e., the user hasn't also entered their password this
+        // session).
+        if (_cachedKey == null) {
+          final stored =
+              await CryptoEngine.readSecure('biometric_key');
+          if (stored != null) {
+            _cachedKey = base64.decode(stored);
+          }
+        }
         _authenticated = true;
         _failedAttempts = 0;
         _lockoutUntil = null;
-        _addAuditEvent('AUTH', 'Biometric authentication successful');
+        _addAuditEvent('AUTH', 'Fingerprint authentication successful');
         _resetInactivityTimer();
         notifyListeners();
       } else {
-        _lastBiometricError = 'Biometric authentication was cancelled.';
+        _lastBiometricError = 'Fingerprint not recognised. Try again or use your password.';
         notifyListeners();
       }
-      return authenticated;
+      return ok;
     } on PlatformException catch (e) {
-      _lastBiometricError = _messageForBiometricError(e);
+      _lastBiometricError = _fingerprintErrorMessage(e);
       notifyListeners();
       return false;
     } catch (_) {
       _lastBiometricError =
-          'Biometric authentication failed. Please try again.';
+          'Fingerprint authentication failed. Use your password instead.';
       notifyListeners();
       return false;
     }
   }
 
-  String _messageForBiometricError(PlatformException e) {
+  String _fingerprintErrorMessage(PlatformException e) {
     switch (e.code) {
       case 'NotAvailable':
-        return 'Biometric authentication is not available on this device.';
+      case 'not_available':
+        return 'Fingerprint hardware is not available on this device.';
       case 'NotEnrolled':
-        return 'No fingerprint or face data enrolled. Add one in device settings first.';
+      case 'not_enrolled':
+        return 'No fingerprint enrolled. Go to Settings → Security → Fingerprint.';
       case 'LockedOut':
-        return 'Too many attempts. Biometric authentication is temporarily locked.';
+      case 'locked_out':
+        return 'Too many attempts. Fingerprint is temporarily locked. Use your password.';
       case 'PermanentlyLockedOut':
-        return 'Biometric authentication is locked. Unlock your device with PIN first.';
+      case 'permanently_locked_out':
+        return 'Fingerprint is permanently locked. Unlock the device with your PIN, then try again.';
       case 'PasscodeNotSet':
-        return 'Set up a device PIN or password before using biometrics.';
+      case 'passcode_not_set':
+        return 'Set up a device PIN or pattern before using fingerprint.';
+      case 'otherOperatingSystem':
+        return 'Fingerprint is not supported on this platform.';
       default:
-        return e.message ?? 'Biometric authentication failed. Please try again.';
+        return e.message?.isNotEmpty == true
+            ? e.message!
+            : 'Fingerprint authentication failed. Use your password instead.';
     }
   }
 
+  // ── Session ────────────────────────────────────────────────────────────────
   void setActiveTab(int tab) {
     _activeTab = tab;
     _resetInactivityTimer();
@@ -397,6 +489,7 @@ class AppState extends ChangeNotifier {
     _inactivityTimer?.cancel();
     _inactivityTimer = Timer(const Duration(minutes: 5), () {
       _authenticated = false;
+      _cachedKey = null;
       _addAuditEvent('AUTH', 'Session expired due to inactivity');
       notifyListeners();
     });
@@ -406,55 +499,59 @@ class AppState extends ChangeNotifier {
 
   void lock() {
     _authenticated = false;
+    _cachedKey = null;
     _inactivityTimer?.cancel();
     _addAuditEvent('AUTH', 'Vault manually locked');
     notifyListeners();
   }
 
-  Future<Uint8List> _getMasterKey() async {
-    final saltStr = await CryptoEngine.readSecure('master_salt');
-    if (saltStr != null) {
-      final hash = await CryptoEngine.readSecure('master_hash');
-      if (hash != null) {
-        final salt = base64.decode(saltStr);
-        final sessionKey = await CryptoEngine.readSecure('session_key');
-        if (sessionKey != null) {
-          return base64.decode(sessionKey);
-        }
-      }
+  // ── Key management ─────────────────────────────────────────────────────────
+  Future<Uint8List> _getVaultKey() async {
+    if (_cachedKey != null) return _cachedKey!;
+
+    // Fallback: try session key stored in secure storage (legacy path).
+    final stored = await CryptoEngine.readSecure('session_key');
+    if (stored != null) {
+      _cachedKey = base64.decode(stored);
+      return _cachedKey!;
     }
 
-    var biometricKey = await CryptoEngine.readSecure('biometric_key');
-    if (biometricKey == null) {
-      final newKey = CryptoEngine.generateSalt(32);
-      await CryptoEngine.storeSecure('biometric_key', base64.encode(newKey));
-      biometricKey = base64.encode(newKey);
+    // Biometric-only path: use the biometric_key.
+    final bioKey = await CryptoEngine.readSecure('biometric_key');
+    if (bioKey != null) {
+      _cachedKey = base64.decode(bioKey);
+      return _cachedKey!;
     }
-    return base64.decode(biometricKey);
+
+    // Emergency fallback: generate an ephemeral key (vault will be
+    // unreadable after restart, but at least won't crash).
+    final ephemeral = CryptoEngine.generateSalt(32);
+    _cachedKey = ephemeral;
+    return ephemeral;
   }
 
+  // Keep legacy storeSessionKey for callers that still call it.
   Future<void> storeSessionKey(String password) async {
     final saltStr = await CryptoEngine.readSecure('master_salt');
     if (saltStr == null) return;
     final salt = base64.decode(saltStr);
     final key = CryptoEngine.deriveKeyFromPassword(password, salt);
+    _cachedKey = key;
     await CryptoEngine.storeSecure('session_key', base64.encode(key));
   }
 
   Future<void> clearSessionKey() async {
+    _cachedKey = null;
     await CryptoEngine.deleteSecure('session_key');
   }
 
-  Future<void> _reEncryptVaultWithPassword(
-      String newPassword, Uint8List newSalt) async {
-    final oldKey = await _getMasterKey();
-    final newKey = CryptoEngine.deriveKeyFromPassword(newPassword, newSalt);
-
+  Future<void> _reEncryptVault(
+      Uint8List oldKey, Uint8List newKey) async {
     for (final entry in _vault) {
       if (entry.encryptedSecret.isEmpty) continue;
       try {
-        final plaintext =
-            CryptoEngine.decryptData(entry.encryptedSecret, entry.iv, oldKey);
+        final plaintext = CryptoEngine.decryptData(
+            entry.encryptedSecret, entry.iv, oldKey);
         final reEncrypted = CryptoEngine.encryptData(plaintext, newKey);
         entry.encryptedSecret = reEncrypted['ciphertext']!;
         entry.iv = reEncrypted['iv']!;
@@ -463,8 +560,9 @@ class AppState extends ChangeNotifier {
     await _saveVault();
   }
 
+  // ── Vault CRUD ─────────────────────────────────────────────────────────────
   Future<void> addVaultEntry(VaultEntry entry) async {
-    final key = await _getMasterKey();
+    final key = await _getVaultKey();
     final encrypted = CryptoEngine.encryptData(entry.rawSecret, key);
     entry.encryptedSecret = encrypted['ciphertext']!;
     entry.iv = encrypted['iv']!;
@@ -480,7 +578,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<String> revealSecret(VaultEntry entry) async {
-    final key = await _getMasterKey();
+    final key = await _getVaultKey();
     return CryptoEngine.decryptData(entry.encryptedSecret, entry.iv, key);
   }
 
@@ -488,8 +586,9 @@ class AppState extends ChangeNotifier {
     final idx = _vault.indexWhere((e) => e.id == updated.id);
     if (idx == -1) return;
     if (updated.rawSecret.isNotEmpty) {
-      final key = await _getMasterKey();
-      final encrypted = CryptoEngine.encryptData(updated.rawSecret, key);
+      final key = await _getVaultKey();
+      final encrypted =
+          CryptoEngine.encryptData(updated.rawSecret, key);
       updated.encryptedSecret = encrypted['ciphertext']!;
       updated.iv = encrypted['iv']!;
       updated.strengthScore = updated.category == VaultItemCategory.login
@@ -505,11 +604,13 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> deleteVaultEntry(String id) async {
-    final entry = _vault.firstWhere((e) => e.id == id);
-    _vault.removeWhere((e) => e.id == id);
+    final idx = _vault.indexWhere((e) => e.id == id);
+    if (idx == -1) return;
+    final title = _vault[idx].title;
+    _vault.removeAt(idx);
     await _saveVault();
     _computeSecurityScore();
-    _addAuditEvent('VAULT', 'Deleted: ${entry.title}');
+    _addAuditEvent('VAULT', 'Deleted: $title');
     notifyListeners();
   }
 
@@ -521,6 +622,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ── Persistence ────────────────────────────────────────────────────────────
   Future<void> _saveVault() async {
     try {
       final data = _vault.map((e) => e.toJson()).toList();
@@ -529,10 +631,10 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> _loadVault() async {
-    final data = await CryptoEngine.readSecure('vault_v2');
-    if (data != null && data.isNotEmpty) {
+    final raw = await CryptoEngine.readSecure('vault_v2');
+    if (raw != null && raw.isNotEmpty) {
       try {
-        final list = jsonDecode(data) as List;
+        final list = jsonDecode(raw) as List;
         _vault = list
             .map((j) => VaultEntry.fromJson(j as Map<String, dynamic>))
             .toList();
@@ -551,15 +653,17 @@ class AppState extends ChangeNotifier {
           detail: detail,
           timestamp: DateTime.now(),
         ));
-    if (_auditLog.length > 200) _auditLog = _auditLog.sublist(0, 200);
+    if (_auditLog.length > 200) {
+      _auditLog = _auditLog.sublist(0, 200);
+    }
     _saveAuditLog();
   }
 
   Future<void> _loadAuditLog() async {
-    final data = await CryptoEngine.readSecure('audit_log');
-    if (data != null && data.isNotEmpty) {
+    final raw = await CryptoEngine.readSecure('audit_log');
+    if (raw != null && raw.isNotEmpty) {
       try {
-        final list = jsonDecode(data) as List;
+        final list = jsonDecode(raw) as List;
         _auditLog = list
             .map((j) => AuditEvent.fromJson(j as Map<String, dynamic>))
             .toList();
@@ -576,21 +680,22 @@ class AppState extends ChangeNotifier {
     } catch (_) {}
   }
 
+  // ── Score ──────────────────────────────────────────────────────────────────
   void _computeSecurityScore() {
     int score = 0;
     if (_hasMasterPassword) score += 20;
     if (_useBiometrics) score += 20;
     if (_vault.isNotEmpty) score += 15;
-    final weakCount = weakPasswordCount;
-    if (weakCount == 0 && _vault.isNotEmpty) {
+    final weak = weakPasswordCount;
+    if (weak == 0 && _vault.isNotEmpty) {
       score += 20;
-    } else if (weakCount < 3) {
+    } else if (weak < 3) {
       score += 10;
     }
-    final dupCount = duplicatePasswordCount;
-    if (dupCount == 0 && _vault.isNotEmpty) {
+    final dup = duplicatePasswordCount;
+    if (dup == 0 && _vault.isNotEmpty) {
       score += 15;
-    } else if (dupCount < 2) {
+    } else if (dup < 2) {
       score += 7;
     }
     score += min(10, _vault.length ~/ 2);
@@ -600,6 +705,7 @@ class AppState extends ChangeNotifier {
   @override
   void dispose() {
     _inactivityTimer?.cancel();
+    _cachedKey = null;
     super.dispose();
   }
 }

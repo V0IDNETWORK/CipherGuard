@@ -1,10 +1,7 @@
-import 'dart:math';
 import 'package:flutter/material.dart';
-import 'package:local_auth/local_auth.dart';
 import '../../../core/config/constants.dart';
 import '../../../core/services/app_state.dart';
 import '../../../widgets/common_widgets.dart';
-import '../../../widgets/particle_system.dart';
 
 class AuthScreen extends StatefulWidget {
   final AppState appState;
@@ -14,86 +11,86 @@ class AuthScreen extends StatefulWidget {
   State<AuthScreen> createState() => _AuthScreenState();
 }
 
-class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
+class _AuthScreenState extends State<AuthScreen>
+    with SingleTickerProviderStateMixin {
   final _pwCtrl = TextEditingController();
   bool _obscure = true;
   bool _loading = false;
   String? _error;
 
-  late AnimationController _pulseCtrl;
   late AnimationController _shakeCtrl;
-  late AnimationController _rotateCtrl;
-  late Animation<double> _pulse;
   late Animation<double> _shake;
-  late Animation<double> _rotate;
 
   @override
   void initState() {
     super.initState();
-    _pulseCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 1800))
-      ..repeat(reverse: true);
     _shakeCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 500));
-    _rotateCtrl = AnimationController(
-        vsync: this, duration: const Duration(seconds: 10))
-      ..repeat();
-    _pulse = Tween<double>(begin: 0.5, end: 1.0)
-        .animate(CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut));
-    _shake = Tween<double>(begin: -1.0, end: 1.0)
-        .animate(CurvedAnimation(parent: _shakeCtrl, curve: Curves.elasticIn));
-    _rotate = Tween<double>(begin: 0, end: 1).animate(_rotateCtrl);
+        vsync: this, duration: const Duration(milliseconds: 420));
+    _shake = Tween<double>(begin: -1.0, end: 1.0).animate(
+        CurvedAnimation(parent: _shakeCtrl, curve: Curves.elasticIn));
 
-    if (widget.appState.useBiometrics && !widget.appState.hasMasterPassword) {
+    // Auto-trigger fingerprint only when it's the sole auth method.
+    if (widget.appState.useBiometrics &&
+        !widget.appState.hasMasterPassword) {
       WidgetsBinding.instance
-          .addPostFrameCallback((_) => _tryBiometric());
+          .addPostFrameCallback((_) => _tryFingerprint());
     }
   }
 
   @override
   void dispose() {
     _pwCtrl.dispose();
-    _pulseCtrl.dispose();
     _shakeCtrl.dispose();
-    _rotateCtrl.dispose();
     super.dispose();
   }
 
+  // ── Password auth ──────────────────────────────────────────────────────────
   Future<void> _tryPassword() async {
-    final pwd = _pwCtrl.text;
+    final pwd = _pwCtrl.text.trim();
     if (pwd.isEmpty) return;
+
     if (widget.appState.isLockedOut) {
-      setState(() => _error = 'Too many failed attempts. Wait 5 minutes.');
+      setState(() =>
+          _error = 'Too many failed attempts. Wait 5 minutes.');
       return;
     }
+
     setState(() {
       _loading = true;
       _error = null;
     });
-    final ok = await widget.appState.authenticateWithPassword(pwd);
+
+    final ok =
+        await widget.appState.authenticateWithPassword(pwd);
     if (!mounted) return;
+
     if (ok) {
       await widget.appState.storeSessionKey(pwd);
       setState(() => _loading = false);
     } else {
       _pwCtrl.clear();
       _shakeCtrl.forward(from: 0);
+      final remaining = 5 - widget.appState.failedAttempts;
       setState(() {
         _loading = false;
         _error = widget.appState.isLockedOut
             ? 'Too many failed attempts. Wait 5 minutes.'
-            : 'Incorrect password. ${5 - widget.appState.failedAttempts} attempts remaining.';
+            : 'Incorrect password. $remaining attempt${remaining == 1 ? '' : 's'} remaining.';
       });
     }
   }
 
-  Future<void> _tryBiometric() async {
+  // ── Fingerprint auth ───────────────────────────────────────────────────────
+  Future<void> _tryFingerprint() async {
     setState(() {
       _loading = true;
       _error = null;
     });
-    final ok = await widget.appState.authenticateWithBiometrics();
+
+    final ok =
+        await widget.appState.authenticateWithFingerprint();
     if (!mounted) return;
+
     setState(() {
       _loading = false;
       if (!ok) {
@@ -102,181 +99,152 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
     });
   }
 
+  // ── Build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
     final as = widget.appState;
+    final mq = MediaQuery.of(context);
+
     return Scaffold(
       backgroundColor: kBg,
-      body: Stack(
-        children: [
-          Positioned.fill(
-            child: Container(
-              decoration: const BoxDecoration(
-                gradient: RadialGradient(
-                  center: Alignment(0, -0.3),
-                  radius: 1.4,
-                  colors: [Color(0xFF1A0030), Color(0xFF050505)],
+      resizeToAvoidBottomInset: true,
+      body: Container(
+        decoration: const BoxDecoration(
+          gradient: RadialGradient(
+            center: Alignment(0, -0.4),
+            radius: 1.4,
+            colors: [Color(0xFF180030), kBg],
+          ),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: EdgeInsets.only(
+              left: 24,
+              right: 24,
+              bottom: mq.viewInsets.bottom + 16,
+            ),
+            child: Column(
+              children: [
+                Expanded(
+                  child: SingleChildScrollView(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        SizedBox(
+                            height: mq.size.height * 0.08),
+                        _buildLogo(as),
+                        const SizedBox(height: 36),
+                        _buildCard(as),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
+              ],
             ),
           ),
-          Positioned.fill(child: CustomPaint(painter: GridPainter(0.8))),
-          ParticleSystem(child: const SizedBox.expand(), count: 40),
-          SafeArea(
-            child: Center(
-              child: SingleChildScrollView(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 28, vertical: 24),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _buildLogo(as),
-                    const SizedBox(height: 40),
-                    _buildAuthCard(as),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
 
   Widget _buildLogo(AppState as) {
-    return AnimatedBuilder(
-      animation: Listenable.merge([_pulse, _rotate]),
-      builder: (_, __) => Column(
-        children: [
-          Stack(
-            alignment: Alignment.center,
-            children: [
-              Transform.rotate(
-                angle: _rotate.value * 2 * pi,
-                child: Container(
-                  width: 130,
-                  height: 130,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                        color: kNeon.withValues(alpha: 0.12 * _pulse.value),
-                        width: 1),
-                  ),
-                ),
-              ),
-              Transform.rotate(
-                angle: -_rotate.value * 2 * pi * 0.6,
-                child: Container(
-                  width: 108,
-                  height: 108,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    border: Border.all(
-                        color: kPrimary.withValues(alpha: 0.25 * _pulse.value),
-                        width: 1.5),
-                  ),
-                ),
-              ),
-              Container(
-                width: 86,
-                height: 86,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: const LinearGradient(
-                      colors: AppColors.gradientPrimary,
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight),
-                  boxShadow: [
-                    BoxShadow(
-                        color: kPrimary.withValues(alpha: 0.6 * _pulse.value),
-                        blurRadius: 40,
-                        spreadRadius: 4),
-                    BoxShadow(
-                        color: kNeon.withValues(alpha: 0.2 * _pulse.value),
-                        blurRadius: 70,
-                        spreadRadius: 10),
-                  ],
-                  border: Border.all(
-                      color: kNeon.withValues(alpha: 0.6 * _pulse.value),
-                      width: 2),
-                ),
-                child: const Icon(Icons.shield_rounded, color: kText, size: 42),
-              ),
+    return Column(
+      children: [
+        Container(
+          width: 80,
+          height: 80,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const LinearGradient(
+                colors: AppColors.gradientPrimary,
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight),
+            boxShadow: [
+              BoxShadow(
+                  color: kPrimary.withValues(alpha: 0.5),
+                  blurRadius: 32,
+                  spreadRadius: 2),
             ],
+            border: Border.all(
+                color: kNeon.withValues(alpha: 0.4), width: 2),
           ),
-          const SizedBox(height: 20),
-          const NeonText('CIPHERGUARD',
-              fontSize: 24,
-              fontWeight: FontWeight.w900,
-              letterSpacing: 8,
-              gradient: true),
-          const SizedBox(height: 4),
-          Text(
-            as.fullName.isNotEmpty
-                ? 'WELCOME BACK, ${as.fullName.split(' ').first.toUpperCase()}'
-                : as.tr('auth_required'),
-            style: const TextStyle(
-                color: kTextDim, fontSize: 10, letterSpacing: 4),
-          ),
-        ],
-      ),
+          child:
+              const Icon(Icons.shield_rounded, color: kText, size: 38),
+        ),
+        const SizedBox(height: 16),
+        const NeonText('CIPHERGUARD',
+            fontSize: 22,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 7,
+            gradient: true),
+        const SizedBox(height: 4),
+        AnimatedBuilder(
+          animation: widget.appState,
+          builder: (_, __) {
+            final name = widget.appState.fullName;
+            return Text(
+              name.isNotEmpty
+                  ? 'WELCOME BACK, ${name.split(' ').first.toUpperCase()}'
+                  : 'AUTHENTICATION REQUIRED',
+              style: const TextStyle(
+                  color: kTextDim,
+                  fontSize: 10,
+                  letterSpacing: 3),
+            );
+          },
+        ),
+      ],
     );
   }
 
-  Widget _buildAuthCard(AppState as) {
+  Widget _buildCard(AppState as) {
     return AnimatedBuilder(
-      animation: _shake,
+      animation: _shakeCtrl,
       builder: (_, child) => Transform.translate(
-        offset: Offset(_error != null ? _shake.value * 8 : 0, 0),
+        offset: Offset(_error != null ? _shake.value * 7 : 0, 0),
         child: child,
       ),
       child: Container(
-        padding: const EdgeInsets.all(24),
+        padding: const EdgeInsets.all(22),
         decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(24),
-          gradient:
-              const LinearGradient(colors: [Color(0x12FFFFFF), Color(0x06FFFFFF)]),
+          borderRadius: BorderRadius.circular(22),
+          color: kSurface2,
           border: Border.all(
-              color: _error != null
-                  ? kError.withValues(alpha: 0.5)
-                  : kGlassBorder,
-              width: 1),
+            color: _error != null
+                ? kError.withValues(alpha: 0.45)
+                : kGlassBorder,
+          ),
         ),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('AUTHENTICATION REQUIRED',
+            const Text('UNLOCK VAULT',
                 style: TextStyle(
-                    color: kTextMuted, fontSize: 10, letterSpacing: 3)),
-            const SizedBox(height: 20),
-            if (as.useBiometrics) ...[
-              _buildBiometricButton(as),
-              if (as.hasMasterPassword) ...[
-                const SizedBox(height: 16),
-                Row(children: [
-                  Expanded(
-                      child: Divider(color: kGlassBorder2.withValues(alpha: 0.5))),
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Text('OR',
-                        style: TextStyle(
-                            color: kTextMuted.withValues(alpha: 0.6),
-                            fontSize: 10,
-                            letterSpacing: 3)),
-                  ),
-                  Expanded(
-                      child: Divider(color: kGlassBorder2.withValues(alpha: 0.5))),
-                ]),
-                const SizedBox(height: 16),
-              ],
-            ],
+                    color: kTextMuted,
+                    fontSize: 10,
+                    letterSpacing: 3,
+                    fontWeight: FontWeight.w700)),
+            const SizedBox(height: 18),
+
+            // Fingerprint button — shown when enrolled.
+            if (as.useBiometrics && as.fingerprintAvailable)
+              ..._buildFingerprintSection(as),
+
+            // Password section.
             if (as.hasMasterPassword) ...[
+              if (as.useBiometrics && as.fingerprintAvailable) ...[
+                const SizedBox(height: 14),
+                _buildDivider(),
+                const SizedBox(height: 14),
+              ],
               _buildPasswordField(as),
-              const SizedBox(height: 16),
+              const SizedBox(height: 12),
               _buildUnlockButton(as),
             ],
+
+            // Error banner.
             if (_error != null) ...[
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
               _buildError(),
             ],
           ],
@@ -285,59 +253,73 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildBiometricButton(AppState as) {
-    return GestureDetector(
-      onTap: _loading ? null : _tryBiometric,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          borderRadius: BorderRadius.circular(18),
-          gradient: LinearGradient(
-              colors: AppColors.gradientCyan
-                  .map((c) => c.withValues(alpha: 0.12))
-                  .toList()),
-          border: Border.all(color: kCyan.withValues(alpha: 0.4)),
-          boxShadow: [
-            BoxShadow(
-                color: kCyan.withValues(alpha: 0.15), blurRadius: 20)
-          ],
-        ),
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              as.availableBiometrics.contains(BiometricType.face)
-                  ? Icons.face_rounded
-                  : Icons.fingerprint_rounded,
-              color: kCyan,
-              size: 28,
-            ),
-            const SizedBox(width: 12),
-            Text(
-              as.availableBiometrics.contains(BiometricType.face)
-                  ? 'USE FACE ID'
-                  : 'USE FINGERPRINT',
-              style: const TextStyle(
-                  color: kCyan,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                  letterSpacing: 2),
-            ),
-          ],
+  List<Widget> _buildFingerprintSection(AppState as) {
+    return [
+      GestureDetector(
+        onTap: _loading ? null : _tryFingerprint,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 180),
+          padding: const EdgeInsets.symmetric(vertical: 18),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(16),
+            gradient: LinearGradient(
+                colors: AppColors.gradientCyan
+                    .map((c) => c.withValues(alpha: 0.10))
+                    .toList()),
+            border: Border.all(
+                color: _loading
+                    ? kCyan.withValues(alpha: 0.2)
+                    : kCyan.withValues(alpha: 0.45)),
+          ),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(Icons.fingerprint_rounded,
+                  color: _loading ? kTextMuted : kCyan, size: 30),
+              const SizedBox(width: 12),
+              Text(
+                _loading ? 'SCANNING...' : 'USE FINGERPRINT',
+                style: TextStyle(
+                    color: _loading ? kTextMuted : kCyan,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 14,
+                    letterSpacing: 2),
+              ),
+            ],
+          ),
         ),
       ),
-    );
+    ];
+  }
+
+  Widget _buildDivider() {
+    return Row(children: [
+      Expanded(
+          child:
+              Divider(color: kGlassBorder2.withValues(alpha: 0.4))),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        child: Text('OR',
+            style: TextStyle(
+                color: kTextMuted.withValues(alpha: 0.5),
+                fontSize: 10,
+                letterSpacing: 3)),
+      ),
+      Expanded(
+          child:
+              Divider(color: kGlassBorder2.withValues(alpha: 0.4))),
+    ]);
   }
 
   Widget _buildPasswordField(AppState as) {
     return Container(
       decoration: BoxDecoration(
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(13),
         border: Border.all(
-            color: _error != null ? kError.withValues(alpha: 0.4) : kGlassBorder),
-        gradient:
-            const LinearGradient(colors: [Color(0x10FFFFFF), Color(0x06FFFFFF)]),
+            color: _error != null
+                ? kError.withValues(alpha: 0.4)
+                : kGlassBorder),
+        color: kSurface3,
       ),
       child: TextField(
         controller: _pwCtrl,
@@ -345,13 +327,13 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
         onSubmitted: (_) => _loading ? null : _tryPassword(),
         style: const TextStyle(color: kText, fontSize: 15),
         decoration: InputDecoration(
-          hintText: as.tr('master_password'),
+          hintText: 'Master Password',
           hintStyle: const TextStyle(color: kTextMuted),
           border: InputBorder.none,
           contentPadding:
-              const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-          prefixIcon:
-              const Icon(Icons.lock_outline_rounded, color: kNeon, size: 20),
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+          prefixIcon: const Icon(Icons.lock_outline_rounded,
+              color: kNeon, size: 20),
           suffixIcon: IconButton(
             icon: Icon(
                 _obscure
@@ -359,7 +341,8 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
                     : Icons.visibility_outlined,
                 color: kTextDim,
                 size: 20),
-            onPressed: () => setState(() => _obscure = !_obscure),
+            onPressed: () =>
+                setState(() => _obscure = !_obscure),
           ),
         ),
       ),
@@ -368,30 +351,35 @@ class _AuthScreenState extends State<AuthScreen> with TickerProviderStateMixin {
 
   Widget _buildUnlockButton(AppState as) {
     return CyberButton(
-      label: _loading ? as.tr('authenticating') : as.tr('unlock_vault'),
+      label: _loading ? 'VERIFYING...' : 'UNLOCK VAULT',
       icon: _loading ? null : Icons.lock_open_rounded,
       onPressed: _loading ? null : _tryPassword,
       gradient: AppColors.gradientPrimary,
       width: double.infinity,
-      height: 54,
+      height: 52,
     );
   }
 
   Widget _buildError() {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 13, vertical: 10),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(10),
-        color: kError.withValues(alpha: 0.08),
-        border: Border.all(color: kError.withValues(alpha: 0.3)),
+        color: kError.withValues(alpha: 0.07),
+        border:
+            Border.all(color: kError.withValues(alpha: 0.28)),
       ),
       child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline_rounded, color: kError, size: 16),
-          const SizedBox(width: 10),
+          const Icon(Icons.error_outline_rounded,
+              color: kError, size: 16),
+          const SizedBox(width: 9),
           Expanded(
               child: Text(_error!,
-                  style: const TextStyle(color: kError, fontSize: 12))),
+                  style: const TextStyle(
+                      color: kError, fontSize: 12))),
         ],
       ),
     );

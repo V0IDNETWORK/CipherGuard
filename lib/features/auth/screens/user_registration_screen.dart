@@ -102,7 +102,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen>
       backgroundColor: kBg,
       body: Stack(
         children: [
-          Positioned.fill(child: CustomPaint(painter: GridPainter(1.0))),
+          
           Positioned.fill(
             child: Container(
               decoration: const BoxDecoration(
@@ -114,7 +114,7 @@ class _UserRegistrationScreenState extends State<UserRegistrationScreen>
               ),
             ),
           ),
-          ParticleSystem(child: const SizedBox.expand(), count: 40),
+          ParticleSystem(child: const SizedBox.expand(), count: 14),
           SafeArea(
             child: AnimatedBuilder(
               animation: Listenable.merge([_fadeIn, _slideUp]),

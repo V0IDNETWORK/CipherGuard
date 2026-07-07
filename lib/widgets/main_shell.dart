@@ -6,7 +6,6 @@ import '../features/vault/screens/vault_page.dart';
 import '../features/security/security_center_page.dart';
 import '../features/info/info_page.dart';
 import 'floating_nav_bar.dart';
-import 'particle_system.dart';
 
 class MainShell extends StatefulWidget {
   final AppState appState;
@@ -16,39 +15,30 @@ class MainShell extends StatefulWidget {
   State<MainShell> createState() => _MainShellState();
 }
 
-class _MainShellState extends State<MainShell>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _bgCtrl;
-  late Animation<double> _bgAnim;
-
-  late final List<Widget> _pages;
+class _MainShellState extends State<MainShell> {
+  late final PageController _pageCtrl;
 
   @override
   void initState() {
     super.initState();
-    _bgCtrl = AnimationController(
-        vsync: this, duration: const Duration(seconds: 6))
-      ..repeat(reverse: true);
-    _bgAnim =
-        CurvedAnimation(parent: _bgCtrl, curve: Curves.easeInOut);
-
-    _pages = [
-      DashboardPage(appState: widget.appState),
-      VaultPage(appState: widget.appState),
-      SecurityCenterPage(appState: widget.appState),
-      InfoPage(appState: widget.appState),
-    ];
+    _pageCtrl = PageController(initialPage: widget.appState.activeTab);
   }
 
   @override
   void dispose() {
-    _bgCtrl.dispose();
+    _pageCtrl.dispose();
     super.dispose();
+  }
+
+  void _onTabTapped(int index) {
+    widget.appState.setActiveTab(index);
+    _pageCtrl.jumpToPage(index);
   }
 
   @override
   Widget build(BuildContext context) {
     final as = widget.appState;
+    final mq = MediaQuery.of(context);
     return Listener(
       onPointerDown: (_) => as.resetTimer(),
       child: Scaffold(
@@ -56,51 +46,52 @@ class _MainShellState extends State<MainShell>
         body: Stack(
           children: [
             Positioned.fill(
-              child: AnimatedBuilder(
-                animation: _bgAnim,
-                builder: (_, __) => Container(
-                  decoration: BoxDecoration(
-                    gradient: RadialGradient(
-                      center: Alignment(
-                          0, -0.3 + _bgAnim.value * 0.1),
-                      radius: 1.4,
-                      colors: [
-                        Color.lerp(const Color(0xFF0E0020),
-                            const Color(0xFF150030),
-                            _bgAnim.value)!,
-                        kBg,
-                      ],
-                    ),
+              child: Container(
+                decoration: const BoxDecoration(
+                  gradient: RadialGradient(
+                    center: Alignment(0, -0.4),
+                    radius: 1.4,
+                    colors: [Color(0xFF0E0020), kBg],
                   ),
                 ),
               ),
             ),
             Positioned.fill(
-              child: CustomPaint(painter: GridPainter(0.5)),
-            ),
-            ParticleSystem(
-              child: const SizedBox.expand(),
-              count: 20,
-              color: kNeon,
-            ),
-            AnimatedBuilder(
-              animation: as,
-              builder: (_, __) => IndexedStack(
-                index: as.activeTab,
-                children: _pages,
+              child: RepaintBoundary(
+                child: CustomPaint(
+                  painter: const _GridPainter(),
+                ),
               ),
             ),
-            AnimatedBuilder(
-              animation: as,
-              builder: (_, __) => FloatingNavBar(
-                activeIndex: as.activeTab,
-                onTap: as.setActiveTab,
-                labels: [
-                  as.tr('dashboard'),
-                  as.tr('vault'),
-                  as.tr('security'),
-                  as.tr('info'),
+            Positioned.fill(
+              child: PageView(
+                controller: _pageCtrl,
+                physics: const NeverScrollableScrollPhysics(),
+                children: [
+                  DashboardPage(appState: as),
+                  VaultPage(appState: as),
+                  SecurityCenterPage(appState: as),
+                  InfoPage(appState: as),
                 ],
+              ),
+            ),
+            Positioned(
+              left: 0,
+              right: 0,
+              bottom: 0,
+              child: AnimatedBuilder(
+                animation: as,
+                builder: (_, __) => FloatingNavBar(
+                  activeIndex: as.activeTab,
+                  onTap: _onTabTapped,
+                  labels: [
+                    as.tr('dashboard'),
+                    as.tr('vault'),
+                    as.tr('security'),
+                    as.tr('info'),
+                  ],
+                  bottomPadding: mq.padding.bottom,
+                ),
               ),
             ),
           ],
@@ -108,4 +99,25 @@ class _MainShellState extends State<MainShell>
       ),
     );
   }
+}
+
+class _GridPainter extends CustomPainter {
+  const _GridPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0x06CC66FF)
+      ..strokeWidth = 0.5;
+    const step = 48.0;
+    for (double x = 0; x < size.width; x += step) {
+      canvas.drawLine(Offset(x, 0), Offset(x, size.height), paint);
+    }
+    for (double y = 0; y < size.height; y += step) {
+      canvas.drawLine(Offset(0, y), Offset(size.width, y), paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_GridPainter old) => false;
 }

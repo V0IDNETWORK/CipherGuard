@@ -15,7 +15,7 @@ plugins {
 }
 
 android {
-    namespace = "com.mahdi.cipherguard"
+    namespace = "com.example.cipherguard"
 
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
@@ -26,7 +26,7 @@ android {
     }
 
     defaultConfig {
-        applicationId = "com.mahdi.cipherguard"
+        applicationId = "com.example.cipherguard"
 
         minSdk = flutter.minSdkVersion
         targetSdk = 36

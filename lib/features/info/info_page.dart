@@ -4,7 +4,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../../core/config/constants.dart';
 import '../../core/services/app_state.dart';
 import '../../widgets/common_widgets.dart';
-import '../../widgets/particle_system.dart';
+
 
 class InfoPage extends StatefulWidget {
   final AppState appState;
@@ -101,7 +101,7 @@ class _InfoPageState extends State<InfoPage> with TickerProviderStateMixin {
             ),
           ),
           Positioned.fill(
-              child: CustomPaint(painter: GridPainter(0.6))),
+              child: const SizedBox.shrink()),
           AnimatedBuilder(
             animation: _rotateAnim,
             builder: (_, __) => Positioned(
