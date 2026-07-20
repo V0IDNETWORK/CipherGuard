@@ -1,7 +1,7 @@
 # 🔐 CipherGuard
 
 <p align="center">
-  <img src="assets/banner.png" alt="CipherGuard Banner">
+  <img src="assets/banner.jpg" alt="CipherGuard Banner">
 </p>
 
 <p align="center">
