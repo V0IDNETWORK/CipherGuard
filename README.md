@@ -1,81 +1,94 @@
 # 🔐 CipherGuard
 
-**CipherGuard** is a modern cross-platform encrypted vault application built with Flutter.  
-It allows users to securely store sensitive data such as passwords, notes, and private entries using a local-first encryption system.
+<p align="center">
+  <img src="assets/banner.png" alt="CipherGuard Banner">
+</p>
+
+<p align="center">
+  <b>A modern, secure, cross-platform encrypted vault built with Flutter.</b>
+  <br>
+  Store passwords, private notes, and sensitive information with a local-first encryption architecture.
+</p>
+
+<p align="center">
+
+![Flutter](https://img.shields.io/badge/Flutter-3.x-blue?logo=flutter)
+![Dart](https://img.shields.io/badge/Dart-3.x-blue?logo=dart)
+![Security](https://img.shields.io/badge/Security-Encrypted-green?logo=protonmail)
+![Platforms](https://img.shields.io/badge/Platforms-Android%20%7C%20iOS%20%7C%20Desktop-orange)
+![License](https://img.shields.io/badge/License-MIT-yellow)
+
+</p>
+
 
 ---
 
-## 🚀 Overview
+## 🎬 Demo
 
-CipherGuard is designed with a **security-first architecture**, ensuring all sensitive data is encrypted locally before being stored.  
-No plaintext data is ever exposed outside the device.
+<p align="center">
+  <img src="assets/demo.gif" width="800" alt="CipherGuard Demo">
+</p>
 
----
-
-## ✨ Features
-
-- 🧠 Master password authentication
-- 📦 Secure vault for storing sensitive entries
-- 🔑 Optional biometric authentication support
-- 🛡️ Security Center dashboard
-- 📱 Clean, modern Flutter UI
-- ⚡ Fast and lightweight performance
-- 🌐 Cross-platform support (Android, iOS, Windows, macOS, Linux, Web)
+> A quick preview of CipherGuard's secure vault workflow.
 
 ---
 
-## 🧱 Architecture
+# 🧠 Overview
 
-lib/
-├── core/
-│   ├── config/        # App constants
-│   ├── crypto/        # Encryption engine
-│   └── services/      # App state & core services
-│
-├── features/
-│   ├── auth/          # Authentication flow
-│   ├── dashboard/     # Main dashboard
-│   ├── vault/         # Secure storage system
-│   ├── security/      # Security center
-│   └── info/          # Info pages
-│
-├── theme/             # App theming
-└── widgets/           # Shared UI components
+**CipherGuard** is a privacy-focused encrypted vault application designed with a **security-first mindset**.
+
+The application follows a **local-first security model**, meaning:
+
+- 🔒 Sensitive information is encrypted before storage
+- 🚫 No plaintext secrets leave the device
+- 🛡️ Cryptographic operations remain isolated inside the security layer
+- ⚡ Fast offline-first experience
+
+
+CipherGuard is built for users who want full control over their private data without depending on cloud services.
 
 ---
 
-## ⚙️ Tech Stack
+# ✨ Features
 
-- Flutter (Dart)
-- Local encryption engine (custom crypto layer)
-- Secure storage architecture
-- Material Design UI
-- Multi-platform support
+## 🔐 Authentication
 
----
+- Master password protection
+- Secure vault unlocking
+- Optional biometric authentication
+- Protected application access
 
-## 📦 Getting Started
 
-git clone https://github.com/V0IDNETWORK/CipherGuard.git
-cd CipherGuard
-flutter pub get
-flutter run
+## 📦 Secure Vault
 
----
+Store private information such as:
 
-## 🛡️ Security Model
+- Passwords
+- Secure notes
+- Private entries
+- Sensitive information
 
-- All encryption happens locally on-device
-- No sensitive data is transmitted to external servers
-- Master password is required to unlock vault
-- Data is stored only in encrypted form
-- Crypto operations are isolated inside the core engine layer
 
-> ⚠️ If the master password is lost, data cannot be recovered.
+## 🛡️ Security Center
 
----
+Monitor and manage:
 
-## 📱 Supported Platforms
+- Vault status
+- Encryption state
+- Security information
+- Application protection
+
+
+## ⚡ Performance
+
+- Lightweight Flutter architecture
+- Fast local operations
+- Minimal resource usage
+
+
+## 🌍 Cross Platform
+
+Supported platforms:
 
 - Android
 - iOS
@@ -84,13 +97,9 @@ flutter run
 - Linux
 - Web
 
+
 ---
 
-## 🤝 Contributing
+# 🏗️ Architecture
 
-Pull requests are welcome.  
-For major changes, open an issue first to discuss improvements.
-
-
-
-MIT License © V0IDNETWORK
+CipherGuard follows a clean feature-based Flutter architecture:
