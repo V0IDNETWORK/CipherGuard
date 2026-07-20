@@ -1,7 +1,7 @@
 # 🔐 CipherGuard
 
 <p align="center">
-  <img src="assets/banner.jpg" alt="CipherGuard Banner">
+  <img src="banner.jpg" alt="CipherGuard Banner">
 </p>
 
 <p align="center">
@@ -26,7 +26,7 @@
 ## 🎬 Demo
 
 <p align="center">
-  <img src="assets/demo.gif" width="800" alt="CipherGuard Demo">
+  <img src="simple.gif" width="800" alt="CipherGuard Demo">
 </p>
 
 > A quick preview of CipherGuard's secure vault workflow.
